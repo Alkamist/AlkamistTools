@@ -216,11 +216,9 @@ function Button:init()
   self.y = 0
   self.w = 0
   self.h = 0
-  self.r = 0.9
-  self.g = 0.9
-  self.b = 0.9
-  self.a = 1.0
-  self.isPressed = false
+  self.fillMono = false
+  self.fillLeft = false
+  self.fillRight = false
   return self
 end
 
@@ -230,18 +228,51 @@ function Button:mouseIsInside()
 end
 
 function Button:draw()
-  -- Fill:
-  if self.isPressed then
-    local fillTint = 0.35
-    gfx.set(fillTint * self.r, fillTint * self.g, fillTint * self.b, self.a, 0)
-    gfx.rect(self.x + 1, self.y + 1, self.w - 1, self.h - 1, true)
+  local halfW = 0.5 * self.w
+  local halfH = 0.5 * self.h
+  local monoW = math.min(30, self.w)
+  local monoH = math.min(20, self.h)
+  local stereoW = math.min(34, self.w)
+  local stereoH = math.min(24, self.h)
+
+  -- Background:
+
+  gfx.set(0.12, 0.12, 0.12, 1, 0)
+  gfx.rect(self.x, self.y, self.w, self.h, true)
+
+  -- Stereo:
+
+  if self.fillLeft and self.fillRight then
+    gfx.set(0.7, 0.2, 0.2, 1, 0)
+    gfx.rect(self.x + 4, self.y + 4, self.w - 8, self.h - 8, true)
+  elseif self.fillLeft then
+    gfx.set(0.2, 0.2, 0.7, 1, 0)
+    gfx.rect(self.x + 4, self.y + 4, self.w - 8, self.h - 8, true)
+  elseif self.fillRight then
+    gfx.set(0.2, 0.2, 0.7, 1, 0)
+    gfx.rect(self.x + 8, self.y + 8, self.w - 16, self.h - 16, true)
+  end
+
+  -- Mono:
+
+  if self.fillMono then
+    gfx.set(0.2, 0.7, 0.2, 1, 0)
+    local monoW = math.max(self.w - 32, 12)
+    gfx.rect(self.x + halfW - 0.5 * monoW, self.y + 2, monoW, self.h - 4, true)
   end
 
   -- Outline:
-  gfx.set(self.r, self.g, self.b, self.a, 0)
+
+  if Button.mouseIsInside(self) then
+    gfx.set(1.0, 1.0, 1.0, 0.9, 0)
+  else
+    gfx.set(1.0, 1.0, 1.0, 0.5, 0)
+  end
   gfx.rect(self.x, self.y, self.w, self.h, false)
 
   -- Title:
+
+  gfx.set(1.0, 1.0, 1.0, 0.9, 0)
   drawStr(self.title, 5, self.x + 2, self.y + 2, self.x + self.w - 2, self.y + self.h - 2)
 end
 
@@ -369,98 +400,146 @@ local function createChannelSends(isMono, inputTrack, outputTrack, channel)
   reaper.SetTrackSendInfo_Value(inputTrack, 0, newSendIndex, "I_DSTCHAN", channelIndex)
 end
 
-local boxSelect = nil
-local function processChannel(isMono, inputTrack, outputTrack, button, channel)
-  local sends = nil
-  if isMono then
-    sends = getMonoSends(inputTrack, outputTrack)
-  else
-    sends = getStereoSends(inputTrack, outputTrack)
-  end
-  local numSends = #sends
-  local channelIsOccupied = false
+local monoBoxSelect = nil
+local stereoBoxSelect = nil
+local stereoIsOccupiedPrevious = false
+local function processChannel(inputTrack, outputTrack, button, channel, numChannels)
+  ----------------------- Mono -----------------------
 
-  for sendId = 1, numSends do
-    if channel == sends[sendId].outputChannel then
-      channelIsOccupied = true
+  local monoSends = getMonoSends(inputTrack, outputTrack)
+  local numMonoSends = #monoSends
+  local monoIsOccupied = false
+
+  for sendId = 1, numMonoSends do
+    if channel == monoSends[sendId].outputChannel then
+      monoIsOccupied = true
     end
   end
 
-  if Button.mouseIsInside(button) and GUI.mouseLeftJustPressed then
-    boxSelect = {}
-    boxSelect.xStart = GUI.mouseX
-    boxSelect.yStart = GUI.mouseY
+  if Button.mouseIsInside(button) and GUI.mouseRightJustPressed then
+    monoBoxSelect = {}
+    monoBoxSelect.xStart = GUI.mouseX
+    monoBoxSelect.yStart = GUI.mouseY
 
-    if channelIsOccupied then
-      removeChannelSends(inputTrack, sends, numSends, channel)
-      boxSelect.mode = "Remove"
+    if monoIsOccupied then
+      removeChannelSends(inputTrack, monoSends, numMonoSends, channel)
+      monoBoxSelect.mode = "Remove"
     else
-      createChannelSends(isMono, inputTrack, outputTrack, channel)
-      boxSelect.mode = "Create"
+      createChannelSends(true, inputTrack, outputTrack, channel)
+      monoBoxSelect.mode = "Create"
     end
 
-  elseif GUI.mouseLeftJustReleased then
-    boxSelect = nil
+  elseif GUI.mouseRightJustReleased then
+    monoBoxSelect = nil
 
-  elseif boxSelect and GUI.mouseLeftIsPressed then
-    local buttonIsInsideBoxSelect = math.min(boxSelect.xStart, GUI.mouseX) < (button.x + button.w) and
-                                    math.max(boxSelect.xStart, GUI.mouseX) > button.x and
-                                    math.min(boxSelect.yStart, GUI.mouseY) < (button.y + button.h) and
-                                    math.max(boxSelect.yStart, GUI.mouseY) > button.y
+  elseif monoBoxSelect and GUI.mouseRightIsPressed then
+    local buttonIsInsideBoxSelect = math.min(monoBoxSelect.xStart, GUI.mouseX) < (button.x + button.w) and
+                                    math.max(monoBoxSelect.xStart, GUI.mouseX) > button.x and
+                                    math.min(monoBoxSelect.yStart, GUI.mouseY) < (button.y + button.h) and
+                                    math.max(monoBoxSelect.yStart, GUI.mouseY) > button.y
 
     if buttonIsInsideBoxSelect then
-      if channelIsOccupied then
-        if boxSelect.mode == "Remove" then
-          removeChannelSends(inputTrack, sends, numSends, channel)
+      if monoIsOccupied then
+        if monoBoxSelect.mode == "Remove" then
+          removeChannelSends(inputTrack, monoSends, numMonoSends, channel)
         end
       else
-        if boxSelect.mode == "Create" then
-          createChannelSends(isMono, inputTrack, outputTrack, channel)
+        if monoBoxSelect.mode == "Create" then
+          createChannelSends(true, inputTrack, outputTrack, channel)
         end
       end
     end
   end
 
-  button.isPressed = channelIsOccupied
+  button.fillMono = monoIsOccupied
+
+  ----------------------- Stereo -----------------------
+
+  local stereoSends = getStereoSends(inputTrack, outputTrack)
+  local numStereoSends = #stereoSends
+  local stereoIsOccupied = false
+
+  for sendId = 1, numStereoSends do
+    if channel == stereoSends[sendId].outputChannel then
+      stereoIsOccupied = true
+    end
+  end
+
+  if Button.mouseIsInside(button) and GUI.mouseLeftJustPressed then
+    stereoBoxSelect = {}
+    stereoBoxSelect.xStart = GUI.mouseX
+    stereoBoxSelect.yStart = GUI.mouseY
+    stereoBoxSelect.isEven = channel % 2 == 0
+
+    if stereoIsOccupied then
+      if channel < numChannels then removeChannelSends(inputTrack, stereoSends, numStereoSends, channel) end
+      stereoBoxSelect.mode = "Remove"
+    else
+      if channel < numChannels then createChannelSends(false, inputTrack, outputTrack, channel) end
+      stereoBoxSelect.mode = "Create"
+    end
+
+  elseif GUI.mouseLeftJustReleased then
+    stereoBoxSelect = nil
+
+  elseif stereoBoxSelect and GUI.mouseLeftIsPressed then
+    local buttonIsInsideBoxSelect = math.min(stereoBoxSelect.xStart, GUI.mouseX) < (button.x + button.w) and
+                                    math.max(stereoBoxSelect.xStart, GUI.mouseX) > button.x and
+                                    math.min(stereoBoxSelect.yStart, GUI.mouseY) < (button.y + button.h) and
+                                    math.max(stereoBoxSelect.yStart, GUI.mouseY) > button.y
+    local isEven = channel % 2 == 0
+    local matchingEvens = isEven and stereoBoxSelect.isEven
+    local machingOdds = (not isEven) and (not stereoBoxSelect.isEven)
+
+    if buttonIsInsideBoxSelect and (matchingEvens or machingOdds) then
+      if stereoIsOccupied then
+        if stereoBoxSelect.mode == "Remove" then
+          if channel < numChannels then removeChannelSends(inputTrack, stereoSends, numStereoSends, channel) end
+        end
+      else
+        if stereoBoxSelect.mode == "Create" then
+          if channel < numChannels then createChannelSends(false, inputTrack, outputTrack, channel) end
+        end
+      end
+    end
+  end
+
+  button.fillLeft = stereoIsOccupied
+  button.fillRight = stereoIsOccupiedPrevious
+
+  stereoIsOccupiedPrevious = stereoIsOccupied
 end
 
+local heightAccumulator = 0
 local function processSubMaster(inputTrack, subMaster, subMasterNumber)
   local _, subMasterName = reaper.GetTrackName(subMaster)
   local inset = 24
+  local trackSpacing = 32
   local w = GUI.windowW - 2.0 * inset - 1
   local h = 32
   local x = inset
-  local monoChannelsPerRow = 16
+  local channelsPerRow = 16
   local numMono = reaper.GetMediaTrackInfo_Value(subMaster, "I_NCHAN")
-  local numMonoRows = math.ceil(numMono / monoChannelsPerRow)
-  local stereoChannelsPerRow = 16
   local numStereo = numMono - 1
-  local numStereoRows = math.ceil(numStereo / stereoChannelsPerRow)
-  local monoHeight = numMonoRows * (h + 1)
-  local stereoHeight = numStereoRows * (h + 1)
-  local monoStereoSpacing = 12
-  local trackSpacing = 32
-  local fullHeight = monoHeight + stereoHeight + trackSpacing
-  local y = yScroll + trackSpacing + (subMasterNumber - 1) * (fullHeight + monoStereoSpacing)
+  local numRows = math.ceil(numMono / channelsPerRow)
+  local y = yScroll + trackSpacing + heightAccumulator
 
-  finalSubMasterScroll = -(subMasterNumber - 1) * (fullHeight + monoStereoSpacing)
+  finalSubMasterScroll = -heightAccumulator
 
-  --------------------- Title ---------------------
+  heightAccumulator = heightAccumulator + trackSpacing + numRows * (h + 1)
 
   drawStr(subMasterName, 5, x, y - trackSpacing, x + w, y)
 
-  --------------------- Mono Rows ---------------------
-
-  for rowNumber = 1, numMonoRows do
+  for rowNumber = 1, numRows do
     local row = ButtonRow.init()
-    row.maxButtons = monoChannelsPerRow
+    row.maxButtons = channelsPerRow
     row.w = w
     row.h = h
     row.x = x
     row.y = y + (rowNumber - 1) * (h + 1)
 
-    local channelStart = 1 + (rowNumber - 1) * monoChannelsPerRow
-    local channelEnd = math.min(rowNumber * monoChannelsPerRow, numMono)
+    local channelStart = 1 + (rowNumber - 1) * channelsPerRow
+    local channelEnd = math.min(rowNumber * channelsPerRow, numMono)
 
     for channel = channelStart, channelEnd do
       local rowChannelIndex = channel - channelStart + 1
@@ -472,36 +551,7 @@ local function processSubMaster(inputTrack, subMaster, subMasterNumber)
 
     for channel = channelStart, channelEnd do
       local rowChannelIndex = channel - channelStart + 1
-      processChannel(true, inputTrack, subMaster, row.buttons[rowChannelIndex], channel)
-    end
-
-    ButtonRow.draw(row)
-  end
-
-  --------------------- Stereo Row ---------------------
-
-  for rowNumber = 1, numStereoRows do
-    local row = ButtonRow.init()
-    row.maxButtons = stereoChannelsPerRow
-    row.w = w
-    row.h = h
-    row.x = x
-    row.y = monoStereoSpacing + y + monoHeight + (rowNumber - 1) * (h + 1)
-
-    local channelStart = 1 + (rowNumber - 1) * stereoChannelsPerRow
-    local channelEnd = math.min(rowNumber * stereoChannelsPerRow, numStereo)
-
-    for channel = channelStart, channelEnd do
-      local rowChannelIndex = channel - channelStart + 1
-      row.buttons[rowChannelIndex] = Button.init()
-      row.buttons[rowChannelIndex].title = channel .. "/" .. (channel + 1)
-    end
-
-    ButtonRow.updateButtons(row)
-
-    for channel = channelStart, channelEnd do
-      local rowChannelIndex = channel - channelStart + 1
-      processChannel(false, inputTrack, subMaster, row.buttons[rowChannelIndex], channel)
+      processChannel(inputTrack, subMaster, row.buttons[rowChannelIndex], channel, numMono)
     end
 
     ButtonRow.draw(row)
@@ -529,6 +579,9 @@ GUI.setBackgroundColor(0.08, 0.08, 0.08)
 
 function GUI.update()
   if reaper.CountSelectedTracks(0) > 0 then
+    stereoIsOccupiedPrevious = false
+    heightAccumulator = 0
+
     inputTrack = reaper.GetSelectedTrack(0, 0)
 
     if inputTrack ~= inputTrackPrevious then
